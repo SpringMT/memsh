@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/SpringMT/memsh/internal/dsl"
-	"github.com/SpringMT/memsh/memfs"
 	"github.com/SpringMT/memsh/internal/tool"
+	"github.com/SpringMT/memsh/memfs"
 )
 
 type Broker struct {
