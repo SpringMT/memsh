@@ -17,6 +17,8 @@ type Broker struct {
 type Result struct {
 	OutputPath string
 	Output     []byte
+	Stderr     []byte
+	ExitCode   int
 }
 
 func New(fs *memfs.FS) *Broker {
@@ -28,36 +30,49 @@ func New(fs *memfs.FS) *Broker {
 
 func (b *Broker) ExecutePlan(ctx context.Context, plan dsl.Plan) (Result, error) {
 	if len(plan.Steps) == 0 {
-		return Result{}, fmt.Errorf("empty plan")
+		err := fmt.Errorf("empty plan")
+		return failureResult(err), err
 	}
 
 	for i, step := range plan.Steps {
 		if err := validateStep(step, i == len(plan.Steps)-1); err != nil {
-			return Result{}, err
+			err = fmt.Errorf("validate step %d (%s): %w", i+1, step.Tool, err)
+			return failureResult(err), err
 		}
 		if err := b.runner.ExecuteStep(ctx, step); err != nil {
-			return Result{}, err
+			err = fmt.Errorf("execute step %d (%s): %w", i+1, step.Tool, err)
+			return failureResult(err), err
 		}
 	}
 
 	last := plan.Steps[len(plan.Steps)-1]
 	output, _, err := b.fs.Read(last.OutputPath)
 	if err != nil {
-		return Result{}, fmt.Errorf("read final output %s: %w", last.OutputPath, err)
+		err = fmt.Errorf("read final output %s: %w", last.OutputPath, err)
+		return failureResult(err), err
 	}
 
 	return Result{
 		OutputPath: last.OutputPath,
 		Output:     output,
+		ExitCode:   0,
 	}, nil
 }
 
 func (b *Broker) ExecuteDSL(ctx context.Context, input string) (Result, error) {
 	plan, err := dsl.Compile(input)
 	if err != nil {
-		return Result{}, err
+		err = fmt.Errorf("compile dsl: %w", err)
+		return failureResult(err), err
 	}
 	return b.ExecutePlan(ctx, plan)
+}
+
+func failureResult(err error) Result {
+	return Result{
+		Stderr:   []byte(err.Error()),
+		ExitCode: 1,
+	}
 }
 
 func validateStep(step dsl.Step, final bool) error {

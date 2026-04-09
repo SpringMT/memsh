@@ -40,6 +40,80 @@ func TestCompilePipeline(t *testing.T) {
 	}
 }
 
+func TestCompileJSONQuery(t *testing.T) {
+	plan, err := Compile(`json.query '.entries[] | select(.label == "foo")' /input/data.json > /output/result.json`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(plan.Steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(plan.Steps))
+	}
+	if plan.Steps[0].Tool != "json.query" {
+		t.Fatalf("expected tool json.query, got %q", plan.Steps[0].Tool)
+	}
+	if plan.Steps[0].Params["query"] != `.entries[] | select(.label == "foo")` {
+		t.Fatalf("unexpected query %q", plan.Steps[0].Params["query"])
+	}
+}
+
+func TestCompileJSONToText(t *testing.T) {
+	plan, err := Compile(`json.query '.entries[]' /input/data.json | json.to_text > /output/result.txt`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(plan.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(plan.Steps))
+	}
+	if plan.Steps[1].Tool != "json.to_text" {
+		t.Fatalf("expected second tool json.to_text, got %q", plan.Steps[1].Tool)
+	}
+}
+
+func TestCompileTextReplace(t *testing.T) {
+	plan, err := Compile(`text.replace 's/foo/bar/g' /input/data.txt > /output/result.txt`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(plan.Steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(plan.Steps))
+	}
+	if plan.Steps[0].Tool != "text.replace" {
+		t.Fatalf("expected tool text.replace, got %q", plan.Steps[0].Tool)
+	}
+	if plan.Steps[0].Params["expr"] != "s/foo/bar/g" {
+		t.Fatalf("unexpected expr %q", plan.Steps[0].Params["expr"])
+	}
+}
+
+func TestCompileTextCut(t *testing.T) {
+	plan, err := Compile(`text.cut -d ',' -f 1,3 /input/data.csv > /output/result.txt`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(plan.Steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(plan.Steps))
+	}
+	if plan.Steps[0].Tool != "text.cut" {
+		t.Fatalf("expected tool text.cut, got %q", plan.Steps[0].Tool)
+	}
+	if plan.Steps[0].Params["delimiter"] != "," || plan.Steps[0].Params["fields"] != "1,3" {
+		t.Fatalf("unexpected params %+v", plan.Steps[0].Params)
+	}
+}
+
+func TestCompileTextWC(t *testing.T) {
+	plan, err := Compile(`text.wc -l /input/data.txt > /output/count.txt`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(plan.Steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(plan.Steps))
+	}
+	if plan.Steps[0].Tool != "text.wc" {
+		t.Fatalf("expected tool text.wc, got %q", plan.Steps[0].Tool)
+	}
+}
+
 func TestRejectUnsupportedSyntax(t *testing.T) {
 	if _, err := Compile(`grep ERROR /workspace/app.log && sort > /workspace/out.txt`); err == nil {
 		t.Fatal("expected unsupported syntax error")
