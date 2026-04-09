@@ -63,10 +63,20 @@ func compileCommand(cmd Command, stdinPath, outputPath string) (Step, string, er
 		}, outputPath, nil
 	case "grep":
 		return compileGrep(cmd, stdinPath, outputPath)
+	case "json.query":
+		return compileJSONQuery(cmd, stdinPath, outputPath)
+	case "json.to_text":
+		return compileSingleInputTool(cmd, stdinPath, outputPath, "json.to_text")
 	case "sort":
 		return compileSingleInputTool(cmd, stdinPath, outputPath, "text.sort_lines")
 	case "uniq":
 		return compileSingleInputTool(cmd, stdinPath, outputPath, "text.uniq_lines")
+	case "text.replace":
+		return compileTextReplace(cmd, stdinPath, outputPath)
+	case "text.cut":
+		return compileTextCut(cmd, stdinPath, outputPath)
+	case "text.wc":
+		return compileTextWC(cmd, stdinPath, outputPath)
 	case "head":
 		return compileHeadTail(cmd, stdinPath, outputPath, "text.head")
 	case "tail":
@@ -74,6 +84,131 @@ func compileCommand(cmd Command, stdinPath, outputPath string) (Step, string, er
 	default:
 		return Step{}, "", newProtocolError("unknown_command", fmt.Sprintf("unknown command %q", cmd.Name))
 	}
+}
+
+func compileTextCut(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	step := Step{
+		Tool:       "text.cut",
+		OutputPath: outputPath,
+		Params:     map[string]string{},
+	}
+
+	args := cmd.Args
+	for len(args) >= 2 {
+		switch args[0] {
+		case "-d":
+			step.Params["delimiter"] = args[1]
+		case "-f":
+			step.Params["fields"] = args[1]
+		default:
+			goto done
+		}
+		args = args[2:]
+	}
+
+done:
+	if step.Params["delimiter"] == "" || step.Params["fields"] == "" {
+		return Step{}, "", newProtocolError("missing_argument", "text.cut requires -d <delimiter> and -f <fields>")
+	}
+	if len(args) > 1 {
+		return Step{}, "", newProtocolError("invalid_argument", "text.cut accepts at most one path argument")
+	}
+	if len(args) == 1 {
+		inputPath, err := normalizePath(args[0])
+		if err != nil {
+			return Step{}, "", err
+		}
+		step.InputPath = inputPath
+		return step, outputPath, nil
+	}
+	if stdinPath == "" {
+		return Step{}, "", newProtocolError("missing_pipeline_input", "text.cut requires pipeline input or an explicit path")
+	}
+	step.InputPath = stdinPath
+	return step, outputPath, nil
+}
+
+func compileTextWC(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	step := Step{
+		Tool:       "text.wc",
+		OutputPath: outputPath,
+		Params: map[string]string{
+			"mode": "lines",
+		},
+	}
+
+	args := cmd.Args
+	if len(args) >= 1 && args[0] == "-l" {
+		args = args[1:]
+	}
+	if len(args) > 1 {
+		return Step{}, "", newProtocolError("invalid_argument", "text.wc accepts at most one path argument")
+	}
+	if len(args) == 1 {
+		inputPath, err := normalizePath(args[0])
+		if err != nil {
+			return Step{}, "", err
+		}
+		step.InputPath = inputPath
+		return step, outputPath, nil
+	}
+	if stdinPath == "" {
+		return Step{}, "", newProtocolError("missing_pipeline_input", "text.wc requires pipeline input or an explicit path")
+	}
+	step.InputPath = stdinPath
+	return step, outputPath, nil
+}
+
+func compileTextReplace(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	if len(cmd.Args) < 1 || len(cmd.Args) > 2 {
+		return Step{}, "", newProtocolError("missing_argument", "text.replace requires an expression and optional path")
+	}
+	step := Step{
+		Tool:       "text.replace",
+		OutputPath: outputPath,
+		Params: map[string]string{
+			"expr": cmd.Args[0],
+		},
+	}
+	if len(cmd.Args) == 2 {
+		inputPath, err := normalizePath(cmd.Args[1])
+		if err != nil {
+			return Step{}, "", err
+		}
+		step.InputPath = inputPath
+		return step, outputPath, nil
+	}
+	if stdinPath == "" {
+		return Step{}, "", newProtocolError("missing_pipeline_input", "text.replace requires pipeline input or an explicit path")
+	}
+	step.InputPath = stdinPath
+	return step, outputPath, nil
+}
+
+func compileJSONQuery(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	if len(cmd.Args) < 1 || len(cmd.Args) > 2 {
+		return Step{}, "", newProtocolError("missing_argument", "json.query requires a query and optional path")
+	}
+	step := Step{
+		Tool:       "json.query",
+		OutputPath: outputPath,
+		Params: map[string]string{
+			"query": cmd.Args[0],
+		},
+	}
+	if len(cmd.Args) == 2 {
+		inputPath, err := normalizePath(cmd.Args[1])
+		if err != nil {
+			return Step{}, "", err
+		}
+		step.InputPath = inputPath
+		return step, outputPath, nil
+	}
+	if stdinPath == "" {
+		return Step{}, "", newProtocolError("missing_pipeline_input", "json.query requires pipeline input or an explicit path")
+	}
+	step.InputPath = stdinPath
+	return step, outputPath, nil
 }
 
 func compileGrep(cmd Command, stdinPath, outputPath string) (Step, string, error) {

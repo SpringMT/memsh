@@ -26,7 +26,7 @@ Projects like `just-bash` or agent-style shell bridges are useful, but they ofte
 - no arbitrary shell execution
 - no subprocesses in v1
 - memory-only by default
-- one-shot session isolation
+- session-scoped in-memory isolation
 - immutable input data after load
 - built-in tools instead of wrapped commands
 - explicit, auditable execution plans
@@ -39,13 +39,13 @@ This repository currently includes:
 
 - a v1 DSL specification
 - a minimal in-memory filesystem
-- a one-shot session manager with immutable `/input` loading
+- a session manager with immutable `/input` loading
 - tests for syntax acceptance and rejection
 - small demo and example programs
 
 Not implemented yet:
 
-- richer built-in tool coverage
+- richer built-in tool coverage beyond the current JSON and text primitives
 - public API refinement
 
 ## DSL Example
@@ -85,7 +85,7 @@ Compiled plan:
 
 ## Public Packages
 
-- `memsh`: the public API for one-shot isolated execution sessions
+- `memsh`: the public API for isolated execution sessions
 
 The rest of the implementation lives under `internal/` so the execution model can evolve without expanding the public contract.
 
@@ -107,6 +107,7 @@ if err != nil {
 
 result, err := sess.Execute(ctx, `grep "ERROR" /input/app.log | sort | uniq > /output/errors.txt`)
 if err != nil {
+	log.Printf("exit=%d stderr=%s", result.ExitCode, string(result.Stderr))
 	return err
 }
 
@@ -127,6 +128,12 @@ Execute a DSL pipeline against MemFS:
 go run ./examples/execute
 ```
 
+Query JSON skill data and format it for LLM output:
+
+```sh
+go run ./examples/skillquery
+```
+
 ## Session Model
 
 `memsh` is designed for short-lived sessions created and owned by the caller.
@@ -134,7 +141,8 @@ go run ./examples/execute
 - a session is opened
 - input files are loaded under `/input/**`
 - loaded input becomes immutable
-- a single DSL execution produces `/work/**` intermediates and `/output/**` results
+- one or more DSL executions produce `/work/**` intermediates and `/output/**` results
+- later executions may read previously written `/work/**` and `/output/**`
 - the session is closed and discarded
 
 ## Development
@@ -146,3 +154,17 @@ GOCACHE=$(pwd)/.gocache go test ./...
 ## Spec
 
 The current v1 DSL spec lives at [docs/v1-spec.md](docs/v1-spec.md).
+
+## Current Commands
+
+- `cat`
+- `json.query`
+- `json.to_text`
+- `text.replace`
+- `text.cut`
+- `text.wc`
+- `grep`
+- `sort`
+- `uniq`
+- `head`
+- `tail`

@@ -96,6 +96,11 @@ Additional lexical rules:
 These names are accepted in the DSL and compiled into built-in tools.
 
 - `cat`
+- `json.query`
+- `json.to_text`
+- `text.replace`
+- `text.cut`
+- `text.wc`
 - `grep`
 - `sort`
 - `uniq`
@@ -116,6 +121,37 @@ These are not shell commands at runtime. They are only DSL command names.
 - `grep <pattern> [path]`
 - if `path` is present, reads from the given path
 - otherwise reads from pipeline stdin
+
+### `json.query`
+
+- `json.query <query> [path]`
+- evaluates a `gojq` query against JSON input
+- if `path` is present, reads from the given path
+- otherwise reads from pipeline stdin
+- writes JSON text output
+
+### `json.to_text`
+
+- `json.to_text [path]`
+- pretty-prints JSON input as indented text
+- supports either a single JSON value or newline-delimited JSON values
+
+### `text.replace`
+
+- `text.replace <expr> [path]`
+- applies a regex replacement using `s/pattern/replacement/flags`
+- currently supports the optional `g` flag
+
+### `text.cut`
+
+- `text.cut -d <delimiter> -f <fields> [path]`
+- extracts selected 1-based fields from each line
+- field lists currently support comma-separated indexes such as `1,3`
+
+### `text.wc`
+
+- `text.wc -l [path]`
+- counts input lines and writes the result as text
 
 ### `sort`
 
@@ -181,15 +217,15 @@ The broker must reject input when:
 
 ## Session Model
 
-`memsh` is designed for short-lived, one-shot sessions.
+`memsh` is designed for short-lived sessions with immutable inputs.
 
 1. open a session
 2. load immutable input files under `/input/**`
-3. execute one DSL pipeline
+3. execute one or more DSL pipelines
 4. read `/output/**`
 5. close and discard the session
 
-The session is not intended to be reused across multiple jobs.
+Within a session, later executions may read files previously written under `/work/**` and `/output/**`.
 
 ## Go Library Usage
 

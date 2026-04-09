@@ -20,10 +20,9 @@ type Session struct {
 	fs     *memfs.FS
 	broker *broker.Broker
 
-	mu       sync.Mutex
-	loaded   bool
-	executed bool
-	closed   bool
+	mu     sync.Mutex
+	loaded bool
+	closed bool
 }
 
 type Manager struct {
@@ -110,11 +109,6 @@ func (s *Session) Execute(ctx context.Context, input string) (broker.Result, err
 		s.mu.Unlock()
 		return broker.Result{}, fmt.Errorf("session %s is not loaded", s.id)
 	}
-	if s.executed {
-		s.mu.Unlock()
-		return broker.Result{}, fmt.Errorf("session %s has already executed", s.id)
-	}
-	s.executed = true
 	s.mu.Unlock()
 
 	return s.broker.ExecuteDSL(ctx, input)
