@@ -48,12 +48,17 @@ func (r *Runner) ExecuteStep(ctx context.Context, step dsl.Step) error {
 			return err
 		}
 	case "json.to_text":
-		output, err = jsonToText(input)
+		flat := step.Params["flat"] == "true"
+		output, err = jsonToText(input, flat)
 		if err != nil {
 			return err
 		}
 	case "text.grep":
-		output = grepLines(input, step.Params["pattern"])
+		ignoreCase := step.Params["ignore_case"] == "true"
+		output, err = grepLines(input, step.Params["pattern"], ignoreCase)
+		if err != nil {
+			return err
+		}
 	case "text.replace":
 		output, err = replaceText(input, step.Params["expr"])
 		if err != nil {
@@ -133,7 +138,7 @@ func queryJSON(input []byte, queryText string) ([]byte, error) {
 	return append(bytes.Join(results, []byte("\n")), '\n'), nil
 }
 
-func jsonToText(input []byte) ([]byte, error) {
+func jsonToText(input []byte, flat bool) ([]byte, error) {
 	trimmed := bytes.TrimSpace(input)
 	if len(trimmed) == 0 {
 		return nil, nil
@@ -149,17 +154,143 @@ func jsonToText(input []byte) ([]byte, error) {
 			}
 			return nil, fmt.Errorf("invalid json input: %w", err)
 		}
-		pretty, err := json.MarshalIndent(value, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("format json output: %w", err)
+		if flat {
+			line := jsonFlatLine(value)
+			results = append(results, []byte(line))
+		} else {
+			pretty, err := json.MarshalIndent(value, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("format json output: %w", err)
+			}
+			results = append(results, pretty)
 		}
-		results = append(results, pretty)
 	}
 
 	if len(results) == 0 {
 		return nil, nil
 	}
 	return append(bytes.Join(results, []byte("\n")), '\n'), nil
+}
+
+// jsonFlatLine はJSONオブジェクトを "label: description [key=val, ...]" の1行テキストに変換する。
+// 文字列フィールド label と description を先頭に並べ、残りのフィールドを [key=val] 形式で続ける。
+// 配列値は ", " で結合する。オブジェクト値は JSON compact 形式にフォールバックする。
+func jsonFlatLine(v any) string {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+
+	var label, description string
+	if s, ok := obj["label"].(string); ok {
+		label = s
+	}
+	if s, ok := obj["description"].(string); ok {
+		description = s
+	}
+
+	var extras []string
+	// キーを安定順序で出力する
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if k == "label" || k == "description" {
+			continue
+		}
+		val := obj[k]
+		var valStr string
+		switch vt := val.(type) {
+		case string:
+			if vt == "" {
+				continue
+			}
+			valStr = vt
+		case []any:
+			if len(vt) == 0 {
+				continue
+			}
+			parts := make([]string, 0, len(vt))
+			for _, item := range vt {
+				if s, ok := item.(string); ok {
+					parts = append(parts, s)
+				} else {
+					b, _ := json.Marshal(item)
+					parts = append(parts, string(b))
+				}
+			}
+			valStr = strings.Join(parts, ", ")
+		case map[string]any:
+			// ネストしたオブジェクトは再帰的にフラット化
+			inner := make([]string, 0)
+			innerKeys := make([]string, 0, len(vt))
+			for ik := range vt {
+				innerKeys = append(innerKeys, ik)
+			}
+			sort.Strings(innerKeys)
+			for _, ik := range innerKeys {
+				iv := vt[ik]
+				switch ivt := iv.(type) {
+				case string:
+					if ivt != "" {
+						inner = append(inner, fmt.Sprintf("%s=%s", ik, ivt))
+					}
+				case []any:
+					if len(ivt) == 0 {
+						continue
+					}
+					parts := make([]string, 0, len(ivt))
+					for _, item := range ivt {
+						if s, ok := item.(string); ok {
+							parts = append(parts, s)
+						}
+					}
+					if len(parts) > 0 {
+						inner = append(inner, fmt.Sprintf("%s=%s", ik, strings.Join(parts, ",")))
+					}
+				default:
+					b, _ := json.Marshal(iv)
+					inner = append(inner, fmt.Sprintf("%s=%s", ik, string(b)))
+				}
+			}
+			if len(inner) == 0 {
+				continue
+			}
+			valStr = strings.Join(inner, "; ")
+		default:
+			b, _ := json.Marshal(val)
+			valStr = string(b)
+		}
+		extras = append(extras, fmt.Sprintf("%s=%s", k, valStr))
+	}
+
+	var sb strings.Builder
+	if label != "" {
+		sb.WriteString(label)
+	}
+	if description != "" {
+		if sb.Len() > 0 {
+			sb.WriteString(": ")
+		}
+		sb.WriteString(description)
+	}
+	if len(extras) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString(" [")
+		} else {
+			sb.WriteString("[")
+		}
+		sb.WriteString(strings.Join(extras, ", "))
+		sb.WriteString("]")
+	}
+	if sb.Len() == 0 {
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+	return sb.String()
 }
 
 func replaceText(input []byte, expr string) ([]byte, error) {
@@ -307,18 +438,26 @@ func parseCount(params map[string]string, fallback int) (int, error) {
 	return n, nil
 }
 
-func grepLines(input []byte, pattern string) []byte {
+func grepLines(input []byte, pattern string, ignoreCase bool) ([]byte, error) {
 	if pattern == "" {
-		return nil
+		return nil, nil
+	}
+	rePattern := pattern
+	if ignoreCase {
+		rePattern = "(?i)" + pattern
+	}
+	re, err := regexp.Compile(rePattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid grep pattern %q: %w", pattern, err)
 	}
 	lines, endedWithNewline := splitLines(input)
 	matches := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if strings.Contains(line, pattern) {
+		if re.MatchString(line) {
 			matches = append(matches, line)
 		}
 	}
-	return joinLines(matches, endedWithNewline && len(matches) > 0)
+	return joinLines(matches, endedWithNewline && len(matches) > 0), nil
 }
 
 func sortLines(input []byte) []byte {
