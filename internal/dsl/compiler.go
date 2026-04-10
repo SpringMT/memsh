@@ -66,7 +66,7 @@ func compileCommand(cmd Command, stdinPath, outputPath string) (Step, string, er
 	case "json.query":
 		return compileJSONQuery(cmd, stdinPath, outputPath)
 	case "json.to_text":
-		return compileSingleInputTool(cmd, stdinPath, outputPath, "json.to_text")
+		return compileJSONToText(cmd, stdinPath, outputPath)
 	case "sort":
 		return compileSingleInputTool(cmd, stdinPath, outputPath, "text.sort_lines")
 	case "uniq":
@@ -212,18 +212,25 @@ func compileJSONQuery(cmd Command, stdinPath, outputPath string) (Step, string, 
 }
 
 func compileGrep(cmd Command, stdinPath, outputPath string) (Step, string, error) {
-	if len(cmd.Args) < 1 || len(cmd.Args) > 2 {
-		return Step{}, "", newProtocolError("missing_argument", "grep requires a pattern and optional path")
-	}
 	step := Step{
 		Tool:       "text.grep",
 		OutputPath: outputPath,
-		Params: map[string]string{
-			"pattern": cmd.Args[0],
-		},
+		Params:     map[string]string{},
 	}
-	if len(cmd.Args) == 2 {
-		inputPath, err := normalizePath(cmd.Args[1])
+
+	args := cmd.Args
+	if len(args) >= 1 && args[0] == "-i" {
+		step.Params["ignore_case"] = "true"
+		args = args[1:]
+	}
+
+	if len(args) < 1 || len(args) > 2 {
+		return Step{}, "", newProtocolError("missing_argument", "grep requires a pattern and optional path")
+	}
+	step.Params["pattern"] = args[0]
+
+	if len(args) == 2 {
+		inputPath, err := normalizePath(args[1])
 		if err != nil {
 			return Step{}, "", err
 		}
@@ -232,6 +239,37 @@ func compileGrep(cmd Command, stdinPath, outputPath string) (Step, string, error
 	}
 	if stdinPath == "" {
 		return Step{}, "", newProtocolError("missing_pipeline_input", "grep requires pipeline input or an explicit path")
+	}
+	step.InputPath = stdinPath
+	return step, outputPath, nil
+}
+
+func compileJSONToText(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	step := Step{
+		Tool:       "json.to_text",
+		OutputPath: outputPath,
+		Params:     map[string]string{},
+	}
+
+	args := cmd.Args
+	if len(args) >= 1 && args[0] == "--flat" {
+		step.Params["flat"] = "true"
+		args = args[1:]
+	}
+
+	if len(args) > 1 {
+		return Step{}, "", newProtocolError("invalid_argument", "json.to_text accepts at most one path argument")
+	}
+	if len(args) == 1 {
+		inputPath, err := normalizePath(args[0])
+		if err != nil {
+			return Step{}, "", err
+		}
+		step.InputPath = inputPath
+		return step, outputPath, nil
+	}
+	if stdinPath == "" {
+		return Step{}, "", newProtocolError("missing_pipeline_input", "json.to_text requires pipeline input or an explicit path")
 	}
 	step.InputPath = stdinPath
 	return step, outputPath, nil

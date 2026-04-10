@@ -114,6 +114,35 @@ func TestCompileTextWC(t *testing.T) {
 	}
 }
 
+func TestCompileGrepIgnoreCase(t *testing.T) {
+	plan, err := Compile(`grep -i 'error' /input/app.log > /output/result.txt`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if plan.Steps[0].Tool != "text.grep" {
+		t.Fatalf("expected text.grep, got %q", plan.Steps[0].Tool)
+	}
+	if plan.Steps[0].Params["ignore_case"] != "true" {
+		t.Fatalf("expected ignore_case=true, got %q", plan.Steps[0].Params["ignore_case"])
+	}
+	if plan.Steps[0].Params["pattern"] != "error" {
+		t.Fatalf("expected pattern=error, got %q", plan.Steps[0].Params["pattern"])
+	}
+}
+
+func TestCompileJSONToTextFlat(t *testing.T) {
+	plan, err := Compile(`json.to_text --flat /input/data.json > /output/result.txt`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if plan.Steps[0].Tool != "json.to_text" {
+		t.Fatalf("expected json.to_text, got %q", plan.Steps[0].Tool)
+	}
+	if plan.Steps[0].Params["flat"] != "true" {
+		t.Fatalf("expected flat=true, got %q", plan.Steps[0].Params["flat"])
+	}
+}
+
 func TestRejectUnsupportedSyntax(t *testing.T) {
 	if _, err := Compile(`grep ERROR /workspace/app.log && sort > /workspace/out.txt`); err == nil {
 		t.Fatal("expected unsupported syntax error")
