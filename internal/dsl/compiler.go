@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"strconv"
+	"strings"
 )
 
 func Compile(input string) (Plan, error) {
@@ -63,6 +64,8 @@ func compileCommand(cmd Command, stdinPath, outputPath string) (Step, string, er
 		}, outputPath, nil
 	case "grep":
 		return compileGrep(cmd, stdinPath, outputPath)
+	case "jq":
+		return compileJSONQuery(cmd, stdinPath, outputPath)
 	case "json.query":
 		return compileJSONQuery(cmd, stdinPath, outputPath)
 	case "json.to_text":
@@ -71,10 +74,16 @@ func compileCommand(cmd Command, stdinPath, outputPath string) (Step, string, er
 		return compileSingleInputTool(cmd, stdinPath, outputPath, "text.sort_lines")
 	case "uniq":
 		return compileSingleInputTool(cmd, stdinPath, outputPath, "text.uniq_lines")
+	case "sed":
+		return compileTextReplace(cmd, stdinPath, outputPath)
 	case "text.replace":
 		return compileTextReplace(cmd, stdinPath, outputPath)
+	case "cut":
+		return compileTextCut(cmd, stdinPath, outputPath)
 	case "text.cut":
 		return compileTextCut(cmd, stdinPath, outputPath)
+	case "wc":
+		return compileTextWC(cmd, stdinPath, outputPath)
 	case "text.wc":
 		return compileTextWC(cmd, stdinPath, outputPath)
 	case "head":
@@ -107,6 +116,10 @@ func compileTextCut(cmd Command, stdinPath, outputPath string) (Step, string, er
 	}
 
 done:
+	if len(args) >= 1 && strings.HasPrefix(args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("cut: unsupported option %q (supported: -d, -f)", args[0]))
+	}
 	if step.Params["delimiter"] == "" || step.Params["fields"] == "" {
 		return Step{}, "", newProtocolError("missing_argument", "text.cut requires -d <delimiter> and -f <fields>")
 	}
@@ -141,6 +154,10 @@ func compileTextWC(cmd Command, stdinPath, outputPath string) (Step, string, err
 	if len(args) >= 1 && args[0] == "-l" {
 		args = args[1:]
 	}
+	if len(args) >= 1 && strings.HasPrefix(args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("wc: unsupported option %q (supported: -l)", args[0]))
+	}
 	if len(args) > 1 {
 		return Step{}, "", newProtocolError("invalid_argument", "text.wc accepts at most one path argument")
 	}
@@ -160,6 +177,10 @@ func compileTextWC(cmd Command, stdinPath, outputPath string) (Step, string, err
 }
 
 func compileTextReplace(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	if len(cmd.Args) >= 1 && strings.HasPrefix(cmd.Args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("sed: unsupported option %q (sed takes an expression, not flags)", cmd.Args[0]))
+	}
 	if len(cmd.Args) < 1 || len(cmd.Args) > 2 {
 		return Step{}, "", newProtocolError("missing_argument", "text.replace requires an expression and optional path")
 	}
@@ -186,6 +207,10 @@ func compileTextReplace(cmd Command, stdinPath, outputPath string) (Step, string
 }
 
 func compileJSONQuery(cmd Command, stdinPath, outputPath string) (Step, string, error) {
+	if len(cmd.Args) >= 1 && strings.HasPrefix(cmd.Args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("jq: unsupported option %q (jq takes a query expression, not flags)", cmd.Args[0]))
+	}
 	if len(cmd.Args) < 1 || len(cmd.Args) > 2 {
 		return Step{}, "", newProtocolError("missing_argument", "json.query requires a query and optional path")
 	}
@@ -223,6 +248,10 @@ func compileGrep(cmd Command, stdinPath, outputPath string) (Step, string, error
 		step.Params["ignore_case"] = "true"
 		args = args[1:]
 	}
+	if len(args) >= 1 && strings.HasPrefix(args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("grep: unsupported option %q (supported: -i)", args[0]))
+	}
 
 	if len(args) < 1 || len(args) > 2 {
 		return Step{}, "", newProtocolError("missing_argument", "grep requires a pattern and optional path")
@@ -255,6 +284,10 @@ func compileJSONToText(cmd Command, stdinPath, outputPath string) (Step, string,
 	if len(args) >= 1 && args[0] == "--flat" {
 		step.Params["flat"] = "true"
 		args = args[1:]
+	}
+	if len(args) >= 1 && strings.HasPrefix(args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("json.to_text: unsupported option %q (supported: --flat)", args[0]))
 	}
 
 	if len(args) > 1 {
@@ -313,6 +346,10 @@ func compileHeadTail(cmd Command, stdinPath, outputPath, tool string) (Step, str
 		}
 		step.Params["n"] = args[1]
 		args = args[2:]
+	}
+	if len(args) >= 1 && strings.HasPrefix(args[0], "-") {
+		return Step{}, "", newProtocolError("unsupported_option",
+			fmt.Sprintf("%s: unsupported option %q (supported: -n)", cmd.Name, args[0]))
 	}
 
 	if len(args) > 1 {
